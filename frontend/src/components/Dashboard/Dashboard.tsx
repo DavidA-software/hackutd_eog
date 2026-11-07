@@ -1,0 +1,99 @@
+import { useAppStore } from '../../store/appStore';
+
+export default function Dashboard() {
+  const { events, trucks, oilReserve, nowUnix, network, ops } = useAppStore();
+
+  const activeEvents = events.filter((e) => e.status === 'ongoing');
+  const criticalCount = activeEvents.filter((e) => e.severity === 'critical').length;
+  const redCount = activeEvents.filter((e) => e.severity === 'red').length;
+  const activeTrucks = trucks.filter((t) => t.status === 'en_route' || t.status === 'on_site');
+
+  const totalSavingsAvailable = activeEvents.reduce((sum, e) => {
+    return sum + (e.recommended_action?.savings ?? 0);
+  }, 0);
+
+  const reserveRatio = oilReserve.available_bbl / oilReserve.total_bbl;
+  const reserveColor =
+    reserveRatio > 0.6 ? 'text-green-400' :
+    reserveRatio > 0.3 ? 'text-yellow-400' :
+    'text-red-400';
+
+  const nowDate = nowUnix > 0 ? new Date(nowUnix * 1000).toUTCString().slice(0, 25) : '—';
+
+  return (
+    <div className="flex gap-3 p-3 border-b border-slate-800 bg-slate-900/50">
+      {/* Timestamp */}
+      <KPICard
+        label="System Time"
+        value={nowDate}
+        sub={network ? `${network.systems.length} systems online` : 'No data loaded'}
+        color="text-blue-300"
+        icon="🕐"
+      />
+
+      {/* Threat status */}
+      <KPICard
+        label="Active Threats"
+        value={String(activeEvents.length)}
+        sub={`${criticalCount} critical · ${redCount} high`}
+        color={activeEvents.length === 0 ? 'text-green-400' : criticalCount > 0 ? 'text-red-400' : 'text-orange-400'}
+        icon={activeEvents.length === 0 ? '✅' : '⚠️'}
+        pulse={criticalCount > 0}
+      />
+
+      {/* Trucks */}
+      <KPICard
+        label="Active Trucks"
+        value={String(activeTrucks.length)}
+        sub={`of ${network ? Object.values(ops?.systems ?? {}).reduce((s, sys) => s + sys.emergency_fleet_size, 0) : 0} total fleet`}
+        color="text-yellow-300"
+        icon="🚚"
+      />
+
+      {/* Savings opportunity */}
+      <KPICard
+        label="Savings Available"
+        value={`$${totalSavingsAvailable.toLocaleString()}`}
+        sub="vs. doing nothing"
+        color="text-green-400"
+        icon="💰"
+      />
+
+      {/* Oil reserve */}
+      <KPICard
+        label="Emergency Reserve"
+        value={`${oilReserve.available_bbl.toLocaleString()} bbl`}
+        sub={`${(reserveRatio * 100).toFixed(0)}% available · ${oilReserve.status}`}
+        color={reserveColor}
+        icon="🛢️"
+      />
+    </div>
+  );
+}
+
+function KPICard({
+  label,
+  value,
+  sub,
+  color,
+  icon,
+  pulse,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  color: string;
+  icon: string;
+  pulse?: boolean;
+}) {
+  return (
+    <div className={`flex-1 bg-slate-800/60 border border-slate-700 rounded-lg p-3 min-w-0 ${pulse ? 'pulse-red' : ''}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">{icon}</span>
+        <span className="text-xs text-slate-400 font-medium truncate">{label}</span>
+      </div>
+      <div className={`text-lg font-bold truncate ${color}`}>{value}</div>
+      <div className="text-xs text-slate-500 truncate">{sub}</div>
+    </div>
+  );
+}

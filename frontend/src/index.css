@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: #0a0e1a;
+    color: #e2e8f0;
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow: hidden;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1f2e; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+/* Pulse animations */
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 8px #ef4444; }
+  50% { box-shadow: 0 0 20px #ef4444, 0 0 40px #ef4444; }
+}
+@keyframes pulse-yellow {
+  0%, 100% { box-shadow: 0 0 6px #eab308; }
+  50% { box-shadow: 0 0 16px #eab308; }
+}
+@keyframes truck-move {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+.pulse-red { animation: pulse-red 1.5s ease-in-out infinite; }
+.pulse-yellow { animation: pulse-yellow 2s ease-in-out infinite; }
+.truck-moving { animation: truck-move 0.8s ease-in-out infinite; }

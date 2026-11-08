@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import type { CustomSensor } from '../../types';
+
+const MAX_ICON_BYTES = 512 * 1024;
 
 export default function NetworkEditor() {
   const { addCustomSensor, customSensors, toggleNetworkEditor } = useAppStore();
@@ -10,6 +12,34 @@ export default function NetworkEditor() {
     range_max: 100,
   });
   const [saved, setSaved] = useState(false);
+  const [iconError, setIconError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleIconUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setIconError('Please choose an image file.');
+      return;
+    }
+    if (file.size > MAX_ICON_BYTES) {
+      setIconError('Image must be 512 KB or smaller.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setIconError(null);
+      setForm((f) => ({ ...f, icon: reader.result as string }));
+    };
+    reader.onerror = () => setIconError('Could not read the file.');
+    reader.readAsDataURL(file);
+  }
+
+  function clearIcon() {
+    setForm((f) => ({ ...f, icon: undefined }));
+    setIconError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
   function handleChange(key: keyof CustomSensor, value: string | number) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -28,9 +58,12 @@ export default function NetworkEditor() {
       unit: form.unit ?? '',
       upstream: form.upstream,
       downstream: form.downstream,
+      icon: form.icon,
     });
     setSaved(true);
     setForm({ unit: 'pct', range_min: 0, range_max: 100 });
+    setIconError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setTimeout(() => setSaved(false), 2000);
   }
 
@@ -74,6 +107,40 @@ export default function NetworkEditor() {
             />
           </div>
 
+          {/* Sensor icon upload */}
+          <div>
+            <label htmlFor="sensor-icon" className="block text-xs text-slate-400 mb-1">
+              Sensor Icon (optional, image up to 512 KB)
+            </label>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 shrink-0 rounded bg-slate-800 border border-slate-600 flex items-center justify-center overflow-hidden">
+                {form.icon ? (
+                  <img src={form.icon} alt="Selected sensor icon preview" className="w-full h-full object-contain" />
+                ) : (
+                  <span className="text-slate-600 text-xs">none</span>
+                )}
+              </div>
+              <input
+                id="sensor-icon"
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleIconUpload}
+                className="flex-1 min-w-0 text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600 file:cursor-pointer"
+              />
+              {form.icon && (
+                <button
+                  type="button"
+                  onClick={clearIcon}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            {iconError && <div role="alert" className="text-xs text-red-400 mt-1">{iconError}</div>}
+          </div>
+
           <button
             onClick={handleSave}
             disabled={!form.id || !form.asset_id || !form.metric}
@@ -89,7 +156,10 @@ export default function NetworkEditor() {
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {customSensors.map((s) => (
                 <div key={s.id} className="bg-slate-800 rounded px-3 py-1.5 text-xs flex justify-between">
-                  <span className="text-slate-200 font-mono">{s.id}</span>
+                  <span className="flex items-center gap-2 text-slate-200 font-mono">
+                    {s.icon && <img src={s.icon} alt="" className="w-4 h-4 object-contain" />}
+                    {s.id}
+                  </span>
                   <span className="text-slate-400">{s.asset_id} · {s.metric} ({s.range_min}–{s.range_max} {s.unit})</span>
                 </div>
               ))}

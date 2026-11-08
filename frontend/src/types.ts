@@ -115,6 +115,10 @@ export interface DetectedEvent {
   recommended_action?: RecommendedAction;
   // Meta
   confidence: number;         // 0-1
+  end_unix?: number | null;   // set once resolved
+  detected_unix?: number | null; // when the readings first confirmed it (replay shows it from here)
+  evidence?: string[];        // plain-English reasons from the backend
+  repair_remaining_h?: number;
   order?: number;             // priority rank among ongoing pump failures in same system
 }
 
@@ -123,15 +127,19 @@ export interface DetectedEvent {
 export interface TruckPlan {
   type: 'truck';
   truck_count: number;
-  trip_count: number;
+  trip_count: number;          // total trips across all trucks
   total_cost: number;
   dispatch_time_min: number;
   trucks_available: number;
+  trips_per_truck?: number;
+  arrivals_unix?: number[];    // when each round of trips reaches the tank
+  description?: string;
 }
 
 export interface ShutInPlan {
   type: 'shut_in';
   well_id: string;
+  well_ids?: string[];
   shut_in_at_min: number;
   shut_in_hours: number;
   total_cost: number;
@@ -146,7 +154,16 @@ export interface DoNothingPlan {
   description: string;
 }
 
-export type Plan = TruckPlan | ShutInPlan | DoNothingPlan;
+/** Trucks now plus a late shut-in of a cheap well: sometimes the cheapest option. */
+export interface ComboPlan {
+  type: 'combo';
+  trucks: TruckPlan;
+  shut_in: ShutInPlan;
+  total_cost: number;
+  description: string;
+}
+
+export type Plan = TruckPlan | ShutInPlan | DoNothingPlan | ComboPlan;
 
 export interface RecommendedAction {
   cheapest: Plan;

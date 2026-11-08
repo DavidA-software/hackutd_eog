@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
-import { useAppStore, DATASET_FOLDERS } from './store/appStore';
+import { useAppStore } from './store/appStore';
 import CityCanvas from './components/CityMap/CityCanvas';
 import AlertPanel from './components/AlertPanel/AlertPanel';
 import Dashboard from './components/Dashboard/Dashboard';
@@ -12,11 +12,15 @@ import NotificationCenter from './components/Notifications/NotificationCenter';
 import NetworkEditor from './components/NetworkEditor/NetworkEditor';
 import type { SimSpeed } from './types';
 import type { CityTemperatures } from './components/CityMap/CityCanvas';
-import type { Notification } from './types';
+import type { Notification, AlertSeverity } from './types';
+import ReplayBar from './components/Replay/ReplayBar';
 
 export default function App() {
   const {
     loadDataset,
+    loadDatasets,
+    datasets,
+    backendOnline,
     activeFolder,
     loading,
     loadError,
@@ -41,48 +45,38 @@ export default function App() {
   const [showRain, setShowRain] = useState(false);
   const [showTornado, setShowTornado] = useState(false);
 
-  // Handle temperature data and create alerts
+  // Real weather at the replay time -> alerts. They stay below equipment alerts in the panel.
+  const weatherAlertIds = useRef<Set<string>>(new Set());
   const handleTemperaturesChange = (temps: CityTemperatures) => {
-    const newAlerts = new Set<string>();
-    
-    for (const [cityName, temp] of Object.entries(temps)) {
-      const alertKey = cityName;
-      
-      if (temp.high > 100) {
-        // Hot weather warning
-        if (!tempAlerts.has(`${alertKey}_hot`)) {
-          const notification: any = {
-            id: `weather_hot_${alertKey}_${Date.now()}`,
-            ts: Date.now(),
-            severity: 'major',
-            title: '🔥 Hot Weather Warning',
-            message: `Extreme heat detected in ${cityName}: High ${temp.high}°F. Monitor operations and ensure proper cooling.`,
-            read: false,
-            requires_user_action: false,
-          };
-          // Add to notifications - would need to add this to store
-          console.log('Temperature Alert:', notification);
+    const { addNotification, removeNotification, nowUnix: tNow } = useAppStore.getState();
+    const active = new Set<string>();
+    for (const [city, wx] of Object.entries(temps)) {
+      const checks: [string, boolean, AlertSeverity, string, string][] = [
+        ['storm', (wx.code ?? 0) >= 95, 'major', `Thunderstorm near ${city}`,
+          `Lightning and heavy rain near ${city}. Keep crews off exposed equipment; truck trips to nearby facilities may run late.`],
+        ['rain', (wx.code ?? 0) < 95 && (wx.precip_mm ?? 0) >= 2.5, 'minor', `Heavy rain near ${city}`,
+          `${(wx.precip_mm ?? 0).toFixed(1)} mm of rain in the last hour near ${city}. Lease roads may slow emergency trucks.`],
+        ['wind', (wx.wind_mph ?? 0) >= 30, 'minor', `High winds near ${city}`,
+          `Winds around ${Math.round(wx.wind_mph ?? 0)} mph near ${city}.`],
+        ['heat', (wx.temp ?? 0) >= 100, 'minor', `Extreme heat in ${city}`,
+          `${Math.round(wx.temp ?? 0)}°F in ${city}. Rotate field crews and watch pump temperatures.`],
+        ['cold', wx.temp !== undefined && wx.temp <= 25, 'minor', `Hard freeze in ${city}`,
+          `${Math.round(wx.temp ?? 0)}°F in ${city}. Watch for frozen lines.`],
+      ];
+      for (const [kind, on, severity, title, message] of checks) {
+        if (!on) continue;
+        const id = `wx_${kind}_${city}`;
+        active.add(id);
+        if (!weatherAlertIds.current.has(id)) {
+          addNotification({
+            id, ts: tNow, severity, title, message, read: false, requires_user_action: true,
+            current_status: 'Recorded weather at this time (Open-Meteo)',
+          });
         }
-        newAlerts.add(`${alertKey}_hot`);
-      } else if (temp.low < 20) {
-        // Cold weather warning
-        if (!tempAlerts.has(`${alertKey}_cold`)) {
-          const notification: any = {
-            id: `weather_cold_${alertKey}_${Date.now()}`,
-            ts: Date.now(),
-            severity: 'major',
-            title: '❄️ Cold Weather Warning',
-            message: `Extreme cold detected in ${cityName}: Low ${temp.low}°F. Monitor for freeze-related issues.`,
-            read: false,
-            requires_user_action: false,
-          };
-          console.log('Temperature Alert:', notification);
-        }
-        newAlerts.add(`${alertKey}_cold`);
       }
     }
-    
-    setTempAlerts(newAlerts);
+    for (const id of weatherAlertIds.current) if (!active.has(id)) removeNotification(id);
+    weatherAlertIds.current = active;
   };
 
   // Tornado watch alert
@@ -94,9 +88,9 @@ export default function App() {
       const notification: Notification = {
         id: tornadoAlertId,
         ts: Date.now(),
-        severity: 'critical',
-        title: 'TORNADO WATCH ALERT',
-        message: 'Tornado simulation active. All personnel should monitor conditions and seek shelter if necessary. Equipment status critical.',
+        severity: 'major',
+        title: 'DRILL: Tornado watch',
+        message: 'Training drill (not real weather). All personnel should review shelter procedures.',
         read: false,
         requires_user_action: true,
       };
@@ -122,9 +116,9 @@ export default function App() {
       const notification: Notification = {
         id: thunderstormAlertId,
         ts: Date.now(),
-        severity: 'severe',
-        title: 'THUNDERSTORM WARNING',
-        message: 'Severe thunderstorm conditions detected. Heavy precipitation and electrical activity present. Reduce outdoor operations and ensure equipment protection.',
+        severity: 'minor',
+        title: 'DRILL: Thunderstorm',
+        message: 'Training drill (not real weather). Practice reducing outdoor operations and protecting equipment.',
         read: false,
         requires_user_action: true,
       };
@@ -141,8 +135,9 @@ export default function App() {
     }
   }, [weatherSimMode, showRain, tempAlerts]);
 
-  // Load default dataset on mount
+  // Load the dataset list from the backend, then the default dataset
   useEffect(() => {
+    loadDatasets();
     loadDataset(activeFolder);
   }, []);
 
@@ -207,10 +202,25 @@ export default function App() {
           onChange={(e) => loadDataset(e.target.value)}
           disabled={loading}
         >
-          {DATASET_FOLDERS.map((f) => (
+          {datasets.map((f) => (
             <option key={f.path} value={f.path}>{f.name}</option>
           ))}
         </select>
+        <button
+          className="text-xs text-slate-400 hover:text-slate-200 px-1"
+          onClick={() => loadDatasets()}
+          title="Refresh dataset list (picks up newly uploaded datasets)"
+        >
+          ↻
+        </button>
+        {!loading && (
+          <span
+            className={`text-xs ${backendOnline ? 'text-green-400' : 'text-yellow-400'}`}
+            title={backendOnline ? 'Analysis from the backend' : 'Backend offline: using in-browser analysis'}
+          >
+            {backendOnline ? '● Backend' : '● Offline mode'}
+          </span>
+        )}
 
         {loading && (
           <div className="text-xs text-blue-400 animate-pulse">Loading dataset...</div>
@@ -223,7 +233,7 @@ export default function App() {
 
         {/* Sim controls */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">SIM</span>
+          <span className="text-xs text-slate-500">REPLAY SPEED</span>
           {(['1', '5', '10', '30'] as const).map((spd) => (
             <button
               key={spd}
@@ -245,13 +255,13 @@ export default function App() {
                 : 'bg-green-700 hover:bg-green-600 text-white'
             }`}
           >
-            {simMode ? 'Stop Data Sim' : 'Start Data Sim'}
+            {simMode ? '⏸ Pause' : '▶ Replay week'}
           </button>
         </div>
 
         {/* Weather Sim controls */}
         <div className="flex items-center gap-2 ml-4 pl-4 border-l border-slate-700">
-          <span className="text-xs text-slate-500">WEATHER</span>
+          <span className="text-xs text-slate-500" title="Real recorded weather is always shown. Drills add pretend weather for training.">DRILL</span>
           <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
             <input
               type="checkbox"
@@ -259,7 +269,7 @@ export default function App() {
               onChange={(e) => setShowRain(e.target.checked)}
               className="w-3 h-3"
             />
-            <span>Thunderstorm</span>
+            <span>Storm</span>
           </label>
           <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
             <input
@@ -278,7 +288,7 @@ export default function App() {
                 : 'bg-purple-700 hover:bg-purple-600 text-white'
             }`}
           >
-            {weatherSimMode ? 'Stop Weather Sim' : 'Start Weather Sim'}
+            {weatherSimMode ? 'Stop Drill' : 'Start Drill'}
           </button>
         </div>
 
@@ -328,7 +338,7 @@ export default function App() {
             </div>
             {!isLegendMinimized && (
               <>
-                <LegendItem color="bg-blue-300"   label="Weather radar overlay" />
+                <LegendItem color="bg-blue-300"   label="Recorded rain / storms" />
                 <div className="border-t border-gray-300 my-1"></div>
                 <LegendItem color="bg-green-500"  label="Tank normal" />
                 <LegendItem color="bg-yellow-400" label="Tank &gt;70%" />
@@ -343,12 +353,8 @@ export default function App() {
             )}
           </div>
 
-          {/* Sim mode overlay */}
-          {simMode && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-blue-900/80 border border-blue-500 rounded-full px-4 py-1 text-xs text-blue-300 font-bold">
-              SIMULATION ACTIVE · {simSpeed}x speed
-            </div>
-          )}
+          {/* Replay timeline */}
+          {network && <ReplayBar />}
         </div>
 
         {/* Right sidebar */}

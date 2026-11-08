@@ -14,12 +14,16 @@ import type {
   CustomSensor,
 } from '../types';
 import { loadNetworkJson, loadOpsJson, loadTelemetryCsv, buildTelemetryIndex } from '../data/loader';
+import { fetchAnalysis, fetchDatasets } from '../data/api';
 import { detectEvents } from '../engine/detector';
 import { generateNotifications, predictUpcomingRisks } from '../engine/riskEngine';
 import { buildNetworkGraph } from '../engine/dijkstra';
-import { generateSimEvents, expireSimEvents, simEventsToDetected } from '../engine/simulator';
-import type { SimEvent } from '../engine/simulator';
+import { eventsAt, isoUtc } from '../engine/replay';
 
+// Debounce for the exact backend analysis when the replay is paused on a moment.
+let exactTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Fallback list, used only when the backend isn't running. */
 export const DATASET_FOLDERS: DatasetFolder[] = [
   { name: 'Full Week', path: 'full_week', description: 'Mon Oct 5 – Sun Oct 11 · All 23 events resolved' },
   { name: 'Snapshot Oct-08 12:00', path: 'snapshot_2026-10-08T1200', description: '3 simultaneous S2 pump failures' },
@@ -30,6 +34,11 @@ export const DATASET_FOLDERS: DatasetFolder[] = [
 
 interface AppState {
   // Dataset
+  datasets: DatasetFolder[];
+  backendOnline: boolean;      // analysis came from the backend (false = in-browser fallback)
+  backendEvents: DetectedEvent[] | null;
+  resolvedEvents: DetectedEvent[];
+  loadDatasets: () => Promise<void>;
   activeFolder: string;
   network: NetworkData | null;
   ops: OpsData | null;
@@ -57,7 +66,14 @@ interface AppState {
   // Simulation mode
   simMode: boolean;
   simSpeed: SimSpeed;
-  simEvents: SimEvent[];
+  // Replay of the recorded week
+  timeline: DetectedEvent[];       // every event in the dataset (from the backend)
+  datasetStart: number;
+  datasetEnd: number;              // the dataset's "now"
+  exactAt: number | null;          // replay time the exact analysis below was computed for
+  exactEvents: DetectedEvent[] | null;
+  setReplayTime: (t: number) => void;
+  requestExactAnalysis: () => void;
   simInterval: ReturnType<typeof setInterval> | null;
 
   // UI state
@@ -87,6 +103,18 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  datasets: DATASET_FOLDERS,
+  backendOnline: false,
+  backendEvents: null,
+  resolvedEvents: [],
+  loadDatasets: async () => {
+    try {
+      const datasets = await fetchDatasets();
+      if (datasets.length > 0) set({ datasets });
+    } catch {
+      // Backend not running: keep the built-in list.
+    }
+  },
   activeFolder: 'snapshot_2026-10-08T1200',
   network: null,
   ops: null,
@@ -109,7 +137,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   graphEdges: [],
   simMode: false,
   simSpeed: 1,
-  simEvents: [],
+  timeline: [],
+  datasetStart: 0,
+  datasetEnd: 0,
+  exactAt: null,
+  exactEvents: null,
   simInterval: null,
   selectedAssetId: null,
   selectedSystemId: null,
@@ -132,7 +164,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (row.ts_unix > nowUnix) nowUnix = row.ts_unix;
       }
 
-      const events = detectEvents(network, ops, telemetryIndex, nowUnix);
+      // Detection and cost plans come from the backend; fall back to the in-browser engine.
+      let events: DetectedEvent[];
+      let backendEvents: DetectedEvent[] | null = null;
+      let resolvedEvents: DetectedEvent[] = [];
+      let timeline: DetectedEvent[] = [];
+      let datasetStart = rows.length ? rows[0].ts_unix : 0;
+      for (const row of rows) if (row.ts_unix < datasetStart) datasetStart = row.ts_unix;
+      try {
+        const analysis = await fetchAnalysis(folder);
+        backendEvents = analysis.events.filter((e) => e.status !== 'resolved');
+        resolvedEvents = analysis.events.filter((e) => e.status === 'resolved');
+        timeline = analysis.events;
+        events = backendEvents;
+        nowUnix = analysis.now_unix;
+        datasetStart = analysis.start_unix;
+      } catch (err) {
+        console.warn('Backend analysis unavailable, using in-browser engine:', err);
+        events = detectEvents(network, ops, telemetryIndex, nowUnix);
+      }
       const predictions = predictUpcomingRisks(network, telemetryIndex, nowUnix);
       const notifications = generateNotifications(events, [], nowUnix);
       const { nodes, edges } = buildNetworkGraph(network, telemetryIndex, nowUnix);
@@ -148,9 +198,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         unreadCount: notifications.length,
         graphNodes: nodes,
         graphEdges: edges,
+        backendEvents,
+        backendOnline: backendEvents !== null,
+        resolvedEvents,
+        timeline,
+        datasetStart,
+        datasetEnd: nowUnix,
+        exactAt: null,
+        exactEvents: null,
+        simMode: false,
         loading: false,
         trucks: [],
-        simEvents: [],
       });
     } catch (err) {
       set({ loadError: String(err), loading: false });
@@ -158,11 +216,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   refreshDetection: () => {
-    const { network, ops, telemetryIndex, nowUnix, notifications, simEvents } = get();
+    const { network, ops, telemetryIndex, nowUnix, notifications, backendEvents, timeline, datasetEnd, exactAt, exactEvents } =
+      get();
     if (!network || !ops || !telemetryIndex) return;
-    const baseEvents = detectEvents(network, ops, telemetryIndex, nowUnix);
-    const simDetected = simEventsToDetected(simEvents);
-    const allEvents = [...baseEvents, ...simDetected];
+    // At the dataset's "now": the backend's analysis. Earlier (replay): the exact analysis for this
+    // moment if we have it, otherwise events from the timeline with live countdowns.
+    // Without a backend: the in-browser engine at this time.
+    let allEvents: DetectedEvent[];
+    if (backendEvents === null) {
+      allEvents = detectEvents(network, ops, telemetryIndex, nowUnix);
+    } else if (nowUnix >= datasetEnd) {
+      allEvents = backendEvents;
+    } else if (exactAt === nowUnix && exactEvents) {
+      allEvents = exactEvents;
+    } else {
+      allEvents = eventsAt(timeline, network, ops, telemetryIndex, nowUnix);
+    }
     const predictions = predictUpcomingRisks(network, telemetryIndex, nowUnix);
     const newNotifs = generateNotifications(allEvents, notifications, nowUnix);
     const allNotifs = [...notifications, ...newNotifs];
@@ -259,25 +328,57 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toggleSimMode: () => {
-    const { simMode } = get();
-    // The interval itself is owned by the React useEffect in App.tsx,
-    // which watches simMode. Just flip the flag here.
-    set({ simMode: !simMode });
+    const { simMode, nowUnix, datasetStart, datasetEnd } = get();
+    // The interval itself is owned by the React useEffect in App.tsx, which watches simMode.
+    if (!simMode) {
+      // Starting a replay from the end goes back to the start of the week.
+      if (nowUnix >= datasetEnd) {
+        set({ nowUnix: datasetStart, exactAt: null, exactEvents: null });
+        get().refreshDetection();
+      }
+      set({ simMode: true });
+    } else {
+      set({ simMode: false });
+      get().requestExactAnalysis();
+    }
+  },
+
+  setReplayTime: (t: number) => {
+    const { datasetStart, datasetEnd } = get();
+    const clamped = Math.max(datasetStart, Math.min(datasetEnd, Math.round(t / 300) * 300));
+    set({ nowUnix: clamped, exactAt: null, exactEvents: null });
+    get().refreshDetection();
+  },
+
+  requestExactAnalysis: () => {
+    if (exactTimer) clearTimeout(exactTimer);
+    exactTimer = setTimeout(async () => {
+      const { activeFolder, nowUnix, datasetEnd, backendOnline, simMode } = get();
+      if (!backendOnline || simMode || nowUnix >= datasetEnd) return;
+      const at = nowUnix;
+      try {
+        // Plans for "as if it were this moment": tank level, repair time left and the whole fleet.
+        const analysis = await fetchAnalysis(activeFolder, isoUtc(at));
+        if (get().nowUnix !== at || get().simMode) return;
+        set({ exactAt: at, exactEvents: analysis.events.filter((e) => e.status !== 'resolved') });
+        get().refreshDetection();
+      } catch (err) {
+        console.warn('Exact analysis unavailable for this moment:', err);
+      }
+    }, 400);
   },
 
   setSimSpeed: (speed: SimSpeed) => set({ simSpeed: speed }),
 
   tickSimulation: () => {
-    const { simEvents, network, nowUnix, simSpeed } = get();
+    const { network, nowUnix, simSpeed, datasetEnd } = get();
     if (!network) return;
 
-    const newNow = nowUnix + simSpeed * 300; // advance by simSpeed * 5 minutes
-    const expired = expireSimEvents(simEvents, newNow);
-    const newSim = generateSimEvents(network, expired, newNow);
-    const allSim = [...expired, ...newSim];
-
-    set({ nowUnix: newNow, simEvents: allSim });
+    // Replay: advance through the recorded data by simSpeed x 5 minutes, stopping at its end.
+    const newNow = Math.min(datasetEnd, nowUnix + simSpeed * 300);
+    set({ nowUnix: newNow, exactAt: null, exactEvents: null });
     get().refreshDetection();
+    if (newNow >= datasetEnd) set({ simMode: false });
 
     // Update truck ETAs
     const { trucks } = get();

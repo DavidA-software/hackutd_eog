@@ -75,6 +75,14 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
         </div>
       )}
 
+      {event.evidence && event.evidence.length > 0 && (
+        <ul className="mt-1 text-xs text-slate-400 list-disc list-inside">
+          {event.evidence.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      )}
+
       {event.recommended_action && (
         <div className="mt-2 text-xs bg-slate-800/60 rounded p-2">
           <span className="text-green-400 font-bold">Best plan: </span>
@@ -85,6 +93,8 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
               `Shut in ${event.recommended_action.cheapest.well_id} · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
             {event.recommended_action.cheapest.type === 'do_nothing' &&
               `No Action · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
+            {event.recommended_action.cheapest.type === 'combo' &&
+              `${event.recommended_action.cheapest.description} · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
           </span>
           <div className="text-slate-500 mt-0.5">
             Cost of No Action: <span className="text-red-400">${event.recommended_action.cost_of_doing_nothing.toLocaleString()}</span>
@@ -147,8 +157,22 @@ function NotificationCard({ notification }: { notification: Notification }) {
 export default function AlertPanel() {
   const { events, predictions, notifications, selectAsset } = useAppStore();
 
-  const activeEvents = events.filter((e) => e.status === 'ongoing');
-  const activeNotifications = notifications.filter((n) => !n.read && n.requires_user_action);
+  // Equipment alerts in the required order: pump failures (soonest shutdown first), then leaks,
+  // then worn pumps. The backend/replay already sets `order` on pump failures.
+  const CAT_RANK: Record<string, number> = { pump_failure: 0, pipeline_leak: 1, pump_degradation: 2 };
+  const activeEvents = events
+    .filter((e) => e.status === 'ongoing')
+    .sort(
+      (a, b) =>
+        (CAT_RANK[a.category] ?? 3) - (CAT_RANK[b.category] ?? 3) ||
+        (a.order ?? Infinity) - (b.order ?? Infinity) ||
+        (a.hours_to_limit ?? Infinity) - (b.hours_to_limit ?? Infinity)
+    );
+  // Notifications tied to a problem that has since ended are hidden.
+  const currentIds = new Set(events.map((e) => e.id));
+  const activeNotifications = notifications.filter(
+    (n) => !n.read && n.requires_user_action && (!n.event_id || currentIds.has(n.event_id))
+  );
   
   const allAlerts = [
     ...activeNotifications.map((n) => ({ type: 'notification' as const, data: n })),
@@ -199,14 +223,16 @@ export default function AlertPanel() {
           </div>
         )}
 
-        {/* Display all alerts sorted by severity */}
-        {[...allAlerts]
-          .sort((a, b) => {
-            const sevOrder = { critical: 0, severe: 1, major: 2, minor: 3 };
-            const aLevel = sevOrder[a.data.severity] ?? 3;
-            const bLevel = sevOrder[b.data.severity] ?? 3;
-            return aLevel - bLevel;
-          })
+        {/* Equipment alerts first (spec order), then weather and other notifications by severity */}
+        {[
+          ...allAlerts.filter((a) => a.type === 'event'),
+          ...allAlerts
+            .filter((a) => a.type === 'notification')
+            .sort((a, b) => {
+              const sevOrder = { critical: 0, severe: 1, major: 2, minor: 3 };
+              return (sevOrder[a.data.severity] ?? 3) - (sevOrder[b.data.severity] ?? 3);
+            }),
+        ]
           .map((alert, idx) => (
             <div key={`${alert.type}-${idx}`}>
               {alert.type === 'notification' ? (

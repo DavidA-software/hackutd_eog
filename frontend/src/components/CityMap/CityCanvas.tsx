@@ -1,26 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { latestValue } from '../../data/loader';
 import type { AlertSeverity } from '../../types';
 
-// Weather radar types
-interface RadarTile {
-  url: string;
-  z: number;
-  x: number;
-  y: number;
-}
-
-interface WeatherRadarState {
-  tiles: RadarTile[];
-  timestamp: number;
-  opacity: number;
-}
-
+// Recorded weather at the replay time, per city
 interface CityTemperature {
-  high: number;
-  low: number;
-  timestamp: number;
+  high: number;          // that day's high (°F)
+  low: number;           // that day's low (°F)
+  timestamp: number;     // unix time of the reading shown
+  temp?: number;         // °F at that hour
+  precip_mm?: number;    // rain in that hour
+  wind_mph?: number;
+  code?: number;         // WMO weather code
+  condition?: string;
 }
 
 type CityTemperatures = Record<string, CityTemperature>;
@@ -57,8 +49,15 @@ let cachedBoundaries: CityBoundaries | null = null;
 async function loadCityBoundaries(): Promise<CityBoundaries> {
   if (cachedBoundaries) return cachedBoundaries;
   const r = await fetch('/data/city_boundaries.json');
-  cachedBoundaries = await r.json();
-  return cachedBoundaries!;
+  if (!r.ok) throw new Error(`city_boundaries.json: ${r.status}`);
+  const data = await r.json();
+  // Keep only entries that are coordinate lists, so a bad response can't break the map drawing.
+  const clean: CityBoundaries = {};
+  for (const [name, coords] of Object.entries(data ?? {})) {
+    if (Array.isArray(coords)) clean[name] = coords as ([number, number] | null)[];
+  }
+  cachedBoundaries = clean;
+  return cachedBoundaries;
 }
 
 // City metadata for labels and styling
@@ -104,102 +103,149 @@ function rng(seed: number) {
   };
 }
 
-// ── Weather Radar (RainViewer API - Free, no key required) ──────────────────
-async function getWeatherRadarTiles(lat: number, lon: number, z: number = 8): Promise<WeatherRadarState> {
-  try {
-    // RainViewer API endpoint - no key required
-    const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-    const data = await response.json();
-    
-    if (!data.radar || !data.radar.nowcast || data.radar.nowcast.length === 0) {
-      return { tiles: [], timestamp: 0, opacity: 0.6 };
-    }
-
-    // Get the latest radar frame
-    const latestFrame = data.radar.nowcast[data.radar.nowcast.length - 1];
-    const baseUrl = latestFrame.path;
-    
-    // Calculate tile coordinates for the given lat/lon at zoom level z
-    const tiles: RadarTile[] = [];
-    
-    // RainViewer uses standard Web Mercator tiles (z/x/y format)
-    // Generate a 3x3 grid of tiles around the center point
-    const n = Math.pow(2, z);
-    const lon_rad = (lon + 180) / 360 * n;
-    const lat_rad = Math.sin(lat * Math.PI / 180);
-    const lat_y = (1 - Math.log(lat_rad + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n;
-    
-    const centerX = Math.floor(lon_rad);
-    const centerY = Math.floor(lat_y);
-    
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const x = centerX + dx;
-        const y = centerY + dy;
-        // Wrap x coordinate for tiles
-        const wrappedX = ((x % n) + n) % n;
-        tiles.push({
-          url: `${baseUrl}/${z}/${wrappedX}/${y}/tile.png`,
-          z,
-          x: wrappedX,
-          y,
-        });
-      }
-    }
-
-    return {
-      tiles,
-      timestamp: latestFrame.time * 1000,
-      opacity: 0.5,
-    };
-  } catch (error) {
-    console.warn('Failed to load weather radar:', error);
-    return { tiles: [], timestamp: 0, opacity: 0 };
-  }
+// ── Recorded weather (Open-Meteo historical, free, no key) ─────────────────────
+// The sensor data is a recording, so the weather shown is what actually happened at each city
+// at the replay time, not today's weather.
+interface WeatherSeries {
+  times: number[];               // unix seconds, hourly
+  temp: (number | null)[];
+  precip: (number | null)[];
+  code: (number | null)[];
+  wind: (number | null)[];
 }
 
-// ── Fetch temperature data from Open-Meteo (Free, no key required) ──────────────
-async function getCityTemperatures(): Promise<CityTemperatures> {
-  try {
-    const cityCoords: Record<string, { lat: number; lon: number }> = {
-      'Odessa':      { lat: 31.846, lon: -102.368 },
-      'Midland':     { lat: 31.997, lon: -102.077 },
-      'Big Spring':  { lat: 32.243, lon: -101.478 },
-      'Monahans':    { lat: 31.594, lon: -102.893 },
-      'Andrews':     { lat: 32.319, lon: -102.545 },
-      'McCamey':     { lat: 31.136, lon: -102.222 },
-      'Rankin':      { lat: 31.224, lon: -101.941 },
-      'Stanton':     { lat: 32.128, lon: -101.789 },
-      'Kermit':      { lat: 31.858, lon: -103.094 },
-    };
+const WEATHER_CITIES: Record<string, { lat: number; lon: number }> = {
+  'Odessa':      { lat: 31.846, lon: -102.368 },
+  'Midland':     { lat: 31.997, lon: -102.077 },
+  'Big Spring':  { lat: 32.243, lon: -101.478 },
+  'Monahans':    { lat: 31.594, lon: -102.893 },
+  'Andrews':     { lat: 32.319, lon: -102.545 },
+  'McCamey':     { lat: 31.136, lon: -102.222 },
+  'Rankin':      { lat: 31.224, lon: -101.941 },
+  'Stanton':     { lat: 32.128, lon: -101.789 },
+  'Kermit':      { lat: 31.858, lon: -103.094 },
+};
 
-    const temps: CityTemperatures = {};
-    
-    // Fetch weather for each city
-    for (const [cityName, { lat, lon }] of Object.entries(cityCoords)) {
+const HOURLY = 'temperature_2m,precipitation,weather_code,wind_speed_10m';
+
+async function fetchWeatherSeries(base: string, lat: number, lon: number, startDate: string, endDate: string): Promise<WeatherSeries | null> {
+  const url = `${base}?latitude=${lat}&longitude=${lon}&start_date=${startDate}&end_date=${endDate}` +
+    `&hourly=${HOURLY}&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=UTC`;
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const d = await r.json();
+  const hr = d?.hourly;
+  if (!hr || !Array.isArray(hr.time)) return null;
+  const series: WeatherSeries = {
+    times: hr.time.map((t: string) => Math.floor(Date.parse(t + 'Z') / 1000)),
+    temp: hr.temperature_2m ?? [],
+    precip: hr.precipitation ?? [],
+    code: hr.weather_code ?? [],
+    wind: hr.wind_speed_10m ?? [],
+  };
+  const filled = series.temp.filter((v) => v !== null && v !== undefined).length;
+  return filled > series.times.length * 0.5 ? series : null;
+}
+
+async function getRecordedWeather(startUnix: number, endUnix: number): Promise<Record<string, WeatherSeries>> {
+  const day = (u: number) => new Date(u * 1000).toISOString().slice(0, 10);
+  const startDate = day(startUnix);
+  const endDate = day(endUnix);
+  const out: Record<string, WeatherSeries> = {};
+  await Promise.all(
+    Object.entries(WEATHER_CITIES).map(async ([city, { lat, lon }]) => {
       try {
-        // Open-Meteo API - free, no key required
-        const response = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&timezone=auto`
-        );
-        const data = await response.json();
-        
-        if (data.daily && data.daily.temperature_2m_max && data.daily.temperature_2m_min) {
-          temps[cityName] = {
-            high: Math.round(data.daily.temperature_2m_max[0]),
-            low: Math.round(data.daily.temperature_2m_min[0]),
-            timestamp: Date.now(),
-          };
-        }
+        // Reanalysis archive first; the historical-forecast archive covers the most recent days.
+        const s =
+          (await fetchWeatherSeries('https://archive-api.open-meteo.com/v1/archive', lat, lon, startDate, endDate)) ??
+          (await fetchWeatherSeries('https://historical-forecast-api.open-meteo.com/v1/forecast', lat, lon, startDate, endDate));
+        if (s) out[city] = s;
       } catch (error) {
-        console.warn(`Failed to load temperature for ${cityName}:`, error);
+        console.warn(`Recorded weather unavailable for ${city}:`, error);
       }
-    }
+    })
+  );
+  return out;
+}
 
-    return temps;
-  } catch (error) {
-    console.warn('Failed to load city temperatures:', error);
-    return {};
+function conditionName(code: number | null | undefined): string {
+  if (code === null || code === undefined) return '';
+  if (code === 0) return 'Clear';
+  if (code <= 2) return 'Partly cloudy';
+  if (code === 3) return 'Cloudy';
+  if (code === 45 || code === 48) return 'Fog';
+  if (code >= 51 && code <= 57) return 'Drizzle';
+  if (code >= 61 && code <= 67) return 'Rain';
+  if (code >= 71 && code <= 77) return 'Snow';
+  if (code >= 80 && code <= 82) return 'Showers';
+  if (code >= 85 && code <= 86) return 'Snow showers';
+  if (code >= 95) return 'Thunderstorm';
+  return '';
+}
+
+function weatherAt(all: Record<string, WeatherSeries>, t: number): CityTemperatures {
+  const out: CityTemperatures = {};
+  for (const [city, s] of Object.entries(all)) {
+    if (!s.times.length) continue;
+    const i = Math.max(0, Math.min(s.times.length - 1, Math.floor((t - s.times[0]) / 3600)));
+    const dayStart = Math.floor(t / 86400) * 86400;
+    let high = -Infinity, low = Infinity;
+    for (let k = 0; k < s.times.length; k++) {
+      if (s.times[k] < dayStart || s.times[k] >= dayStart + 86400) continue;
+      const v = s.temp[k];
+      if (v === null || v === undefined) continue;
+      high = Math.max(high, v); low = Math.min(low, v);
+    }
+    const temp = s.temp[i];
+    if (temp === null || temp === undefined) continue;
+    out[city] = {
+      high: Math.round(Number.isFinite(high) ? high : temp),
+      low: Math.round(Number.isFinite(low) ? low : temp),
+      timestamp: s.times[i],
+      temp,
+      precip_mm: s.precip[i] ?? 0,
+      wind_mph: s.wind[i] ?? 0,
+      code: s.code[i] ?? undefined,
+      condition: conditionName(s.code[i]),
+    };
+  }
+  return out;
+}
+
+// Rain and storm cells where the recorded weather had precipitation at this hour.
+function drawRecordedWeather(ctx: CanvasRenderingContext2D, w: number, h: number, wx: CityTemperatures, frame: number) {
+  for (const [city, c] of Object.entries(wx)) {
+    const loc = WEATHER_CITIES[city];
+    if (!loc) continue;
+    const rain = c.precip_mm ?? 0;
+    const storm = (c.code ?? 0) >= 95;
+    if (rain < 0.1 && !storm) continue;
+    const [x, y] = geoToCanvas(loc.lat, loc.lon, w, h);
+    const intensity = Math.min(1, rain / 8 + (storm ? 0.4 : 0));
+    const radius = 45 + intensity * 90 + Math.sin(frame * 0.03) * 4;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    if (intensity > 0.6) {
+      g.addColorStop(0, 'rgba(220,38,38,0.40)');
+      g.addColorStop(0.35, 'rgba(234,179,8,0.32)');
+    } else if (intensity > 0.25) {
+      g.addColorStop(0, 'rgba(234,179,8,0.35)');
+      g.addColorStop(0.4, 'rgba(34,197,94,0.28)');
+    } else {
+      g.addColorStop(0, 'rgba(34,197,94,0.30)');
+    }
+    g.addColorStop(1, 'rgba(34,197,94,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    // Lightning flicker inside thunderstorms
+    if (storm && frame % 90 < 4) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 6, y - 26); ctx.lineTo(x + 2, y - 6); ctx.lineTo(x - 4, y - 4); ctx.lineTo(x + 6, y + 18);
+      ctx.stroke();
+    }
   }
 }
 
@@ -387,7 +433,9 @@ function drawCityBoundaries(
       // Add temperature if available
       if (temperatures && temperatures[cityName]) {
         const temp = temperatures[cityName];
-        const tempText = `H: ${temp.high}° L: ${temp.low}°`;
+        const tempText = temp.temp !== undefined
+          ? `${Math.round(temp.temp)}°F ${temp.condition ?? ''}`.trim()
+          : `H: ${temp.high}° L: ${temp.low}°`;
         const tempFontSize = isLarge ? 10 : isMedium ? 8.5 : 7.5;
         ctx.font = `${tempFontSize}px "Roboto Mono", monospace`;
         ctx.lineWidth = 2.5;
@@ -901,54 +949,32 @@ export default function CityCanvas({
   const frameRef  = useRef<number>(0);
   const {
     network, telemetryIndex, nowUnix, events, predictions,
-    selectAsset, selectSystem, selectedAssetId,
+    selectAsset, selectSystem, selectedAssetId, datasetStart, datasetEnd,
   } = useAppStore();
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 900, h: 600 });
   const [boundaries, setBoundaries] = useState<CityBoundaries>({});
-  const [radarData, setRadarData] = useState<WeatherRadarState>({ tiles: [], timestamp: 0, opacity: 0.5 });
-  const radarRefreshRef = useRef<NodeJS.Timeout | null>(null);
-  const [temperatures, setTemperatures] = useState<CityTemperatures>({});
-  const tempRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  const [weatherSeries, setWeatherSeries] = useState<Record<string, WeatherSeries>>({});
 
   // Load boundary polygons once
   useEffect(() => {
     loadCityBoundaries().then(setBoundaries).catch(() => {});
   }, []);
 
-  // Load weather radar data periodically (every 5 minutes)
+  // Recorded weather for the dataset's dates (fetched once per dataset)
   useEffect(() => {
-    const centerLat = (LAT_MIN + LAT_MAX) / 2;
-    const centerLon = (LON_MIN + LON_MAX) / 2;
-    
-    const loadRadar = async () => {
-      const newRadarData = await getWeatherRadarTiles(centerLat, centerLon, 8);
-      setRadarData(newRadarData);
-    };
+    if (!(datasetEnd > datasetStart)) return;
+    let cancelled = false;
+    getRecordedWeather(datasetStart, datasetEnd).then((s) => { if (!cancelled) setWeatherSeries(s); });
+    return () => { cancelled = true; };
+  }, [datasetStart, datasetEnd]);
 
-    loadRadar();
-    radarRefreshRef.current = setInterval(loadRadar, 5 * 60 * 1000);
-
-    return () => {
-      if (radarRefreshRef.current) clearInterval(radarRefreshRef.current);
-    };
-  }, []);
-
-  // Load city temperatures periodically (every 10 minutes)
-  useEffect(() => {
-    const loadTemps = async () => {
-      const newTemps = await getCityTemperatures();
-      setTemperatures(newTemps);
-      onTemperaturesChange?.(newTemps);
-    };
-
-    loadTemps();
-    tempRefreshRef.current = setInterval(loadTemps, 10 * 60 * 1000);
-
-    return () => {
-      if (tempRefreshRef.current) clearInterval(tempRefreshRef.current);
-    };
-  }, [onTemperaturesChange]);
+  // Weather at the replay time, updated once per hour of replay time
+  const hourKey = Math.floor(nowUnix / 3600);
+  const temperatures = useMemo(() => weatherAt(weatherSeries, nowUnix), [weatherSeries, hourKey]);
+  const onWeatherRef = useRef(onTemperaturesChange);
+  onWeatherRef.current = onTemperaturesChange;
+  useEffect(() => { onWeatherRef.current?.(temperatures); }, [temperatures]);
 
   useEffect(() => {
     const obs = new ResizeObserver((entries) => {
@@ -974,33 +1000,8 @@ export default function CityCanvas({
       // Layer order: terrain → weather radar → cities → roads → pipelines → facilities → trucks
       drawTerrain(ctx!, w, h);
       
-      // Add subtle weather radar visual indicator
-      if (radarData.tiles.length > 0) {
-        ctx!.globalAlpha = 0.08;
-        ctx!.fillStyle = '#6495ed';
-        ctx!.fillRect(0, 0, w, h);
-        ctx!.globalAlpha = 1;
-        
-        // Animated radar sweep line
-        const sweepAngle = (frame * 0.005) % (Math.PI * 2);
-        const centerX = w / 2;
-        const centerY = h / 2;
-        const radius = Math.max(w, h) / 1.5;
-        
-        ctx!.strokeStyle = 'rgba(100, 150, 255, 0.2)';
-        ctx!.lineWidth = 2;
-        ctx!.globalAlpha = 0.3 + Math.sin(frame * 0.008) * 0.2;
-        ctx!.beginPath();
-        ctx!.moveTo(centerX, centerY);
-        ctx!.lineTo(
-          centerX + Math.cos(sweepAngle) * radius,
-          centerY + Math.sin(sweepAngle) * radius
-        );
-        ctx!.stroke();
-        ctx!.globalAlpha = 1;
-      }
-      
       drawCityBoundaries(ctx!, w, h, boundaries, temperatures);
+      drawRecordedWeather(ctx!, w, h, temperatures, frame);
       drawRoads(ctx!, w, h, network);
 
       const allEvents = [...events, ...predictions];
@@ -1128,20 +1129,24 @@ export default function CityCanvas({
         onMouseLeave={() => setTooltip(null)}
       />
       
-      {/* Weather radar status indicator */}
-      {radarData.tiles.length > 0 && (
-        <div className="absolute top-4 right-4 bg-blue-900/70 border border-blue-500 rounded-lg px-3 py-2 text-xs text-blue-200 z-20 pointer-events-none">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-            <span className="font-bold">WEATHER RADAR ACTIVE</span>
+      {/* Recorded weather at the replay time */}
+      {Object.keys(temperatures).length > 0 && (() => {
+        const mid = temperatures['Midland'] ?? Object.values(temperatures)[0];
+        const wet = Object.entries(temperatures).filter(([, c]) => (c.precip_mm ?? 0) >= 0.1 || (c.code ?? 0) >= 95);
+        return (
+          <div className="absolute bottom-4 right-4 bg-slate-950/80 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-200 z-20 pointer-events-none max-w-[260px]">
+            <div className="font-bold text-slate-100 mb-0.5">RECORDED WEATHER</div>
+            <div className="text-slate-300">
+              Midland {Math.round(mid.temp ?? 0)}°F · {mid.condition || '—'} · wind {Math.round(mid.wind_mph ?? 0)} mph
+            </div>
+            <div className="text-slate-400 mt-0.5">
+              {wet.length ? `Rain near: ${wet.map(([c]) => c).join(', ')}` : 'No rain in the area this hour'}
+            </div>
+            <div className="text-slate-500 mt-0.5">At replay time · Open-Meteo historical data</div>
           </div>
-          <div className="text-xs text-blue-300">Live precipitation data from RainViewer</div>
-          <div className="text-xs text-blue-300 mt-1">
-            Updated: {new Date(radarData.timestamp).toLocaleTimeString()}
-          </div>
-        </div>
-      )}
-      
+        );
+      })()}
+
       {tooltip && (
         <div
           className="absolute pointer-events-none bg-white/95 border border-gray-300 shadow-md rounded px-2 py-1.5 text-xs text-gray-800 whitespace-pre z-10"

@@ -119,10 +119,13 @@ function buildSystemAction(evt: DetectedEvent): string {
     const plan = evt.recommended_action?.cheapest;
     if (!plan) return 'No automatic action taken.';
     if (plan.type === 'truck') {
-      return `System automatically dispatched ${plan.truck_count} emergency truck(s) to ${evt.facility}. ${plan.trip_count} trip(s) planned (~$${plan.total_cost.toLocaleString()}).`;
+      return `Recommended: send ${plan.truck_count} emergency truck(s) to ${evt.facility}, ${plan.trip_count} trip(s) in total (~$${plan.total_cost.toLocaleString()}).`;
     }
     if (plan.type === 'shut_in') {
-      return `System automatically shut in ${plan.well_id} to reduce inflow rate. (~$${plan.total_cost.toLocaleString()}).`;
+      return `Recommended: shut in ${plan.well_id}${plan.shut_in_at_min ? ` in ${Math.round(plan.shut_in_at_min)} min` : ' now'} to slow the tank (~$${plan.total_cost.toLocaleString()}).`;
+    }
+    if (plan.type === 'combo') {
+      return `Recommended: ${plan.description} (~$${plan.total_cost.toLocaleString()}).`;
     }
   }
   return 'Alert generated. Awaiting operator action.';

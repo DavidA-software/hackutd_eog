@@ -5,6 +5,7 @@ const PLAN_LABEL: Record<string, string> = {
   truck: 'Send Trucks',
   shut_in: 'Shut In Well',
   do_nothing: 'No Action',
+  combo: 'Trucks + Shut In',
 };
 
 function PlanBadge({ plan, isBest }: { plan: Plan; isBest: boolean }) {
@@ -31,6 +32,14 @@ function PlanBadge({ plan, isBest }: { plan: Plan; isBest: boolean }) {
         <div className="text-xs text-slate-400">
           {plan.truck_count} truck(s) · {plan.trip_count} trip(s) · arrives in ~{plan.dispatch_time_min}min
           <div className="text-slate-500">{plan.trucks_available} trucks in fleet</div>
+        </div>
+      )}
+      {plan.type === 'combo' && (
+        <div className="text-xs text-slate-400">
+          <div>{plan.description}</div>
+          <div className="text-slate-500">
+            Trucks ${plan.trucks.total_cost.toLocaleString()} + shut-in ${plan.shut_in.total_cost.toLocaleString()}
+          </div>
         </div>
       )}
       {plan.type === 'shut_in' && (

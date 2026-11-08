@@ -15,16 +15,14 @@ export default function OilReserve() {
     oilReserve.status === 'low' ? 'text-orange-400' :
     oilReserve.status === 'critical' ? 'text-red-400' : 'text-red-600';
 
-  // Count situations where reserve would be needed
   const criticalEvents = events.filter(
     (e) => e.category === 'pump_failure' && (e.hours_to_limit ?? 99) < 1
   );
 
   return (
     <div className="flex flex-col h-full p-3">
-      <div className="text-sm font-bold text-slate-200 mb-3">🛢️ Emergency Oil Reserve</div>
+      <div className="text-sm font-bold text-slate-200 mb-3">Emergency Oil Reserve</div>
 
-      {/* Reserve gauge */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 mb-3">
         <div className="flex justify-between items-end mb-2">
           <div>
@@ -40,7 +38,6 @@ export default function OilReserve() {
           </div>
         </div>
 
-        {/* Gauge bar */}
         <div className="bg-slate-700 rounded-full h-4 overflow-hidden">
           <div
             className={`h-4 rounded-full transition-all duration-500 ${barColor}`}
@@ -54,7 +51,6 @@ export default function OilReserve() {
         </div>
       </div>
 
-      {/* Depleted */}
       <div className="bg-slate-800/40 rounded-lg p-3 mb-3">
         <div className="text-xs text-slate-500 mb-1">Depleted</div>
         <div className="text-slate-300 font-bold">{oilReserve.depleted_bbl.toLocaleString()} bbl</div>
@@ -65,12 +61,11 @@ export default function OilReserve() {
         )}
       </div>
 
-      {/* Critical situation alert */}
       {criticalEvents.length > 0 && (
         <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-3">
-          <div className="text-xs font-bold text-red-400 mb-1">🚨 Emergency Deployment Recommended</div>
+          <div className="text-xs font-bold text-red-400 mb-1">Emergency Deployment Recommended</div>
           <p className="text-xs text-slate-400">
-            {criticalEvents.length} facility/facilities facing imminent shutdown with no trucks available.
+            {criticalEvents.length} facility/facilities facing imminent shutdown.
             Reserve deployment can bridge the gap.
           </p>
           <button
@@ -83,7 +78,6 @@ export default function OilReserve() {
         </div>
       )}
 
-      {/* Manual controls */}
       <div className="bg-slate-800/40 rounded-lg p-3">
         <div className="text-xs font-bold text-slate-400 mb-2">Manual Deployment</div>
         <p className="text-xs text-slate-500 mb-3">

@@ -36,7 +36,7 @@ export function facilityRiskScore(
   else if (tankLevel >= 55) score += 8;
 
   // Pump failure (0-30)
-  if (pumpStatus === 0) score += 30;
+  if (pumpStatus === 2) score += 30;
   else if (pumpFlow < maxExpectedFlow * 0.85) score += 15;
 
   // Trend: is level rising fast? (0-20)
@@ -67,7 +67,7 @@ export function generateNotifications(
   for (const evt of events) {
     if (existingEventIds.has(evt.id)) continue;
 
-    const isHigh = evt.severity === 'critical' || evt.severity === 'red';
+    const isHigh = evt.severity === 'critical' || evt.severity === 'severe';
     const title = buildTitle(evt);
     const message = buildMessage(evt);
     const systemAction = isHigh ? buildSystemAction(evt) : undefined;
@@ -93,12 +93,12 @@ export function generateNotifications(
 
 function buildTitle(evt: DetectedEvent): string {
   if (evt.category === 'pump_failure') {
-    return `⚠️ Pump Failure — ${evt.facility}`;
+    return `Pump Failure — ${evt.facility}`;
   }
   if (evt.category === 'pump_degradation') {
-    return `🔧 Pump Degrading — ${evt.facility}`;
+    return `Pump Degrading — ${evt.facility}`;
   }
-  return `🔴 Pipeline Leak — ${evt.facility}`;
+  return `Pipeline Leak — ${evt.facility}`;
 }
 
 function buildMessage(evt: DetectedEvent): string {
@@ -146,7 +146,7 @@ function buildUserOptions(evt: DetectedEvent): string[] {
     return ['Dispatch inspector now', 'Acknowledge & monitor', 'Dismiss'];
   }
   if (evt.category === 'pump_failure') {
-    return ['Send truck', 'Shut in well', 'Do nothing', 'Dismiss'];
+    return ['Send truck', 'Shut in well', 'No action', 'Dismiss'];
   }
   return ['Acknowledge', 'Dismiss'];
 }
@@ -168,7 +168,7 @@ export function predictUpcomingRisks(
       const pumpId = facility.pump.id;
       const pumpStatus = latestValue(telemetry, pumpId, 'status', now_unix) ?? 1;
 
-      if (pumpStatus === 0) continue; // already a failure, not a prediction
+      if (pumpStatus === 2) continue; // already a failure, not a prediction
 
       // Check 8-hour trend on tank level
       const eightHourStart = now_unix - 8 * 3600;
@@ -199,7 +199,7 @@ export function predictUpcomingRisks(
               asset: pumpId,
               category: 'pump_failure',
               onset_unix: now_unix,
-              severity: hoursTo92 < 4 ? 'yellow' : 'green',
+              severity: hoursTo92 < 4 ? 'major' : 'minor',
               status: 'predicted',
               level_pct: currentLevel,
               hours_to_limit: hoursTo92,
@@ -226,7 +226,7 @@ export function predictUpcomingRisks(
               asset: pumpId,
               category: 'pump_degradation',
               onset_unix: now_unix,
-              severity: hoursToFailure < 6 ? 'yellow' : 'green',
+              severity: hoursToFailure < 6 ? 'major' : 'minor',
               status: 'predicted',
               confidence: Math.min(0.7, dropRate * 40),
             });

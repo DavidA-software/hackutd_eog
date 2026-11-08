@@ -39,7 +39,7 @@ export function computeRecommendedAction(
   const peak_bbl = current_bbl + total_fill_bbl;
   const peak_pct = (peak_bbl / capacity_bbl) * 100;
 
-  // ── Do Nothing ────────────────────────────────────────────────────────────
+  // ── No Action ─────────────────────────────────────────────────────────────
   let do_nothing_cost = 0;
   let downtime_hours = 0;
   let trips_at_unix: number | null = null;

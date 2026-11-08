@@ -1,25 +1,24 @@
 import { useAppStore } from '../../store/appStore';
-import type { DetectedEvent, AlertSeverity } from '../../types';
+import type { DetectedEvent, AlertSeverity, Notification } from '../../types';
 
 const SEV_COLOR: Record<AlertSeverity, string> = {
-  green: 'border-green-500 bg-green-900/20',
-  yellow: 'border-yellow-400 bg-yellow-900/20',
-  red: 'border-orange-500 bg-orange-900/20',
+  minor:    'border-slate-400 bg-slate-800/30',
+  major:    'border-yellow-400 bg-yellow-900/20',
+  severe:   'border-orange-500 bg-orange-900/20',
   critical: 'border-red-500 bg-red-900/30 animate-pulse',
 };
 
 const SEV_BADGE: Record<AlertSeverity, string> = {
-  green: 'bg-green-500 text-white',
-  yellow: 'bg-yellow-400 text-black',
-  red: 'bg-orange-500 text-white',
+  minor:    'bg-slate-500 text-white',
+  major:    'bg-yellow-400 text-black',
+  severe:   'bg-orange-500 text-white',
   critical: 'bg-red-600 text-white',
 };
 
-
-const CAT_ICON: Record<string, string> = {
-  pump_failure: '🔴',
-  pump_degradation: '🔧',
-  pipeline_leak: '💧',
+const CAT_LABEL: Record<string, string> = {
+  pump_failure: 'PUMP FAILURE',
+  pump_degradation: 'PUMP DEGRADATION',
+  pipeline_leak: 'PIPELINE LEAK',
 };
 
 function hoursLabel(h: number | undefined): string {
@@ -36,9 +35,8 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
     >
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm">{CAT_ICON[event.category]}</span>
-          <span className="text-xs font-bold text-slate-200">
-            {event.asset.replace(/_/g, ' ')}
+          <span className="text-xs font-bold text-slate-300">
+            {CAT_LABEL[event.category] ?? event.category}
           </span>
           {event.status === 'predicted' && (
             <span className="text-xs bg-slate-700 text-slate-300 px-1 rounded">PREDICTED</span>
@@ -50,7 +48,11 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
       </div>
 
       <div className="text-xs text-slate-400 mb-1">
-        {event.system} · {event.facility.replace(/^[A-Z]\d_/, '')}
+        {event.asset.replace(/_/g, ' ')}
+      </div>
+
+      <div className="text-xs text-slate-500 mb-1">
+        {event.system} · {event.facility.replace(/^S\d+_/, '').replace(/_/g, ' ')}
       </div>
 
       {event.category === 'pump_failure' && (
@@ -82,10 +84,10 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
             {event.recommended_action.cheapest.type === 'shut_in' &&
               `Shut in ${event.recommended_action.cheapest.well_id} · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
             {event.recommended_action.cheapest.type === 'do_nothing' &&
-              `Do nothing · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
+              `No Action · $${event.recommended_action.cheapest.total_cost.toLocaleString()}`}
           </span>
           <div className="text-slate-500 mt-0.5">
-            Cost of doing nothing: <span className="text-red-400">${event.recommended_action.cost_of_doing_nothing.toLocaleString()}</span>
+            Cost of No Action: <span className="text-red-400">${event.recommended_action.cost_of_doing_nothing.toLocaleString()}</span>
             {event.recommended_action.savings > 0 && (
               <span className="text-green-400 ml-2">Save ${event.recommended_action.savings.toLocaleString()}</span>
             )}
@@ -108,22 +110,63 @@ function EventCard({ event, onClick }: { event: DetectedEvent; onClick: () => vo
   );
 }
 
+function NotificationCard({ notification }: { notification: Notification }) {
+  return (
+    <div
+      className={`border-l-4 rounded-r p-3 mb-2 ${SEV_COLOR[notification.severity]}`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-bold text-slate-300">
+          {notification.title}
+        </span>
+        <span className={`text-xs px-2 py-0.5 rounded font-bold ${SEV_BADGE[notification.severity]}`}>
+          {notification.severity.toUpperCase()}
+        </span>
+      </div>
+
+      <div className="text-xs text-slate-400 mb-1">
+        {notification.message}
+      </div>
+
+      {notification.current_status && (
+        <div className="text-xs text-slate-500 mb-1">
+          Status: {notification.current_status}
+        </div>
+      )}
+
+      {notification.system_action && (
+        <div className="text-xs bg-slate-800/60 rounded p-2 mt-2">
+          <span className="text-blue-400">System: </span>
+          <span className="text-slate-300">{notification.system_action}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AlertPanel() {
-  const { events, predictions, selectAsset } = useAppStore();
+  const { events, predictions, notifications, selectAsset } = useAppStore();
 
   const activeEvents = events.filter((e) => e.status === 'ongoing');
-  const criticalCount = activeEvents.filter((e) => e.severity === 'critical').length;
-  const redCount = activeEvents.filter((e) => e.severity === 'red').length;
-  const yellowCount = activeEvents.filter((e) => e.severity === 'yellow').length;
+  const activeNotifications = notifications.filter((n) => !n.read && n.requires_user_action);
+  
+  const allAlerts = [
+    ...activeNotifications.map((n) => ({ type: 'notification' as const, data: n })),
+    ...activeEvents.map((e) => ({ type: 'event' as const, data: e })),
+  ];
+
+  const criticalCount = allAlerts.filter((a) => a.data.severity === 'critical').length;
+  const severeCount = allAlerts.filter((a) => a.data.severity === 'severe').length;
+  const majorCount = allAlerts.filter((a) => a.data.severity === 'major').length;
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-3 border-b border-slate-700">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-slate-200">🚨 Active Alerts</span>
+          <span className="text-sm font-bold text-slate-200">Active Alerts</span>
           <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full font-bold">
-            {activeEvents.length}
+            {allAlerts.length}
           </span>
         </div>
         <div className="flex gap-2">
@@ -133,16 +176,16 @@ export default function AlertPanel() {
               <span className="text-red-400">{criticalCount} critical</span>
             </div>
           )}
-          {redCount > 0 && (
+          {severeCount > 0 && (
             <div className="flex items-center gap-1 text-xs">
               <div className="w-2 h-2 rounded-full bg-orange-500" />
-              <span className="text-orange-400">{redCount} high</span>
+              <span className="text-orange-400">{severeCount} severe</span>
             </div>
           )}
-          {yellowCount > 0 && (
+          {majorCount > 0 && (
             <div className="flex items-center gap-1 text-xs">
               <div className="w-2 h-2 rounded-full bg-yellow-400" />
-              <span className="text-yellow-300">{yellowCount} medium</span>
+              <span className="text-yellow-300">{majorCount} major</span>
             </div>
           )}
         </div>
@@ -150,35 +193,41 @@ export default function AlertPanel() {
 
       {/* Events list */}
       <div className="flex-1 overflow-y-auto p-3">
-        {activeEvents.length === 0 && (
+        {allAlerts.length === 0 && (
           <div className="text-center py-8 text-slate-500">
-            <div className="text-2xl mb-2">✅</div>
             <div className="text-sm">All systems nominal</div>
           </div>
         )}
 
-        {/* Sort: critical → red → yellow */}
-        {[...activeEvents]
+        {/* Display all alerts sorted by severity */}
+        {[...allAlerts]
           .sort((a, b) => {
-            const order = { critical: 0, red: 1, yellow: 2, green: 3 };
-            return order[a.severity] - order[b.severity];
+            const sevOrder = { critical: 0, severe: 1, major: 2, minor: 3 };
+            const aLevel = sevOrder[a.data.severity] ?? 3;
+            const bLevel = sevOrder[b.data.severity] ?? 3;
+            return aLevel - bLevel;
           })
-          .map((event) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              onClick={() => selectAsset(event.facility)}
-            />
+          .map((alert, idx) => (
+            <div key={`${alert.type}-${idx}`}>
+              {alert.type === 'notification' ? (
+                <NotificationCard notification={alert.data as Notification} />
+              ) : (
+                <EventCard
+                  event={alert.data as DetectedEvent}
+                  onClick={() => selectAsset((alert.data as DetectedEvent).facility)}
+                />
+              )}
+            </div>
           ))}
 
         {/* Predictions */}
         {predictions.length > 0 && (
           <>
             <div className="text-xs text-slate-500 font-bold mt-4 mb-2 uppercase tracking-wider">
-              ⚡ Predicted Risks
+              Predicted Risks
             </div>
             {predictions
-              .filter((p) => p.severity !== 'green')
+              .filter((p) => p.severity !== 'minor')
               .map((event) => (
                 <EventCard
                   key={event.id}

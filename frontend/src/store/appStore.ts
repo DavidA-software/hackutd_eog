@@ -82,6 +82,8 @@ interface AppState {
   setSidebarTab: (tab: 'alerts' | 'trucks' | 'costs' | 'reserve') => void;
   useOilReserve: (amount_bbl: number) => void;
   tickSimulation: () => void;
+  addNotification: (notification: Notification) => void;
+  removeNotification: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -257,14 +259,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   toggleSimMode: () => {
-    const { simMode, simInterval } = get();
-    if (simMode && simInterval) {
-      clearInterval(simInterval);
-      set({ simMode: false, simInterval: null });
-    } else {
-      set({ simMode: true });
-      get().tickSimulation();
-    }
+    const { simMode } = get();
+    // The interval itself is owned by the React useEffect in App.tsx,
+    // which watches simMode. Just flip the flag here.
+    set({ simMode: !simMode });
   },
 
   setSimSpeed: (speed: SimSpeed) => set({ simSpeed: speed }),
@@ -293,5 +291,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       return t;
     });
     set({ trucks: updatedTrucks });
+  },
+
+  addNotification: (notification: Notification) => {
+    const { notifications } = get();
+    const exists = notifications.some((n) => n.id === notification.id);
+    if (!exists) {
+      const updated = [...notifications, notification];
+      set({ 
+        notifications: updated,
+        unreadCount: updated.filter((n) => !n.read).length 
+      });
+    }
+  },
+
+  removeNotification: (id: string) => {
+    const { notifications } = get();
+    const updated = notifications.filter((n) => n.id !== id);
+    set({ 
+      notifications: updated,
+      unreadCount: updated.filter((n) => !n.read).length 
+    });
   },
 }));

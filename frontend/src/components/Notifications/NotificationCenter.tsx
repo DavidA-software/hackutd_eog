@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import type { Notification, AlertSeverity } from '../../types';
 
-const SEV_STYLE: Record<AlertSeverity, { border: string; bg: string; icon: string }> = {
-  green: { border: 'border-green-500', bg: 'bg-green-900/10', icon: '✅' },
-  yellow: { border: 'border-yellow-400', bg: 'bg-yellow-900/10', icon: '⚠️' },
-  red: { border: 'border-orange-500', bg: 'bg-orange-900/15', icon: '🔴' },
-  critical: { border: 'border-red-500', bg: 'bg-red-900/20', icon: '🚨' },
+const SEV_STYLE: Record<AlertSeverity, { border: string; bg: string }> = {
+  minor:    { border: 'border-slate-400',  bg: 'bg-slate-800/30' },
+  major:    { border: 'border-yellow-400', bg: 'bg-yellow-900/10' },
+  severe:   { border: 'border-orange-500', bg: 'bg-orange-900/15' },
+  critical: { border: 'border-red-500',    bg: 'bg-red-900/20' },
 };
 
 function NotificationCard({ notif }: { notif: Notification }) {
@@ -15,18 +15,19 @@ function NotificationCard({ notif }: { notif: Notification }) {
   const [responded, setResponded] = useState(false);
 
   return (
-    <div className={`border-l-4 ${style.border} ${style.bg} rounded-r p-3 mb-2 ${!notif.read ? 'ring-1 ring-slate-600' : 'opacity-70'}`}>
+    <div
+      className={`border-l-4 ${style.border} ${style.bg} rounded-r p-3 mb-2 ${
+        !notif.read ? 'ring-1 ring-slate-600' : 'opacity-70'
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span>{style.icon}</span>
-          <span className="text-xs font-bold text-slate-200">{notif.title}</span>
-        </div>
+        <span className="text-xs font-bold text-slate-200">{notif.title}</span>
         {!notif.read && (
           <button
             className="text-xs text-slate-500 hover:text-slate-300 ml-2 shrink-0"
             onClick={() => markNotificationRead(notif.id)}
           >
-            ✕
+            x
           </button>
         )}
       </div>
@@ -65,7 +66,7 @@ function NotificationCard({ notif }: { notif: Notification }) {
       )}
 
       {responded && (
-        <div className="mt-2 text-xs text-green-400">✅ Action acknowledged</div>
+        <div className="mt-2 text-xs text-green-400">Action acknowledged</div>
       )}
 
       <div className="mt-1 text-xs text-slate-600">
@@ -83,12 +84,10 @@ export default function NotificationCenter() {
 
   return (
     <div className="relative">
-      {/* Bell button */}
       <button
         className="relative flex items-center gap-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm transition-colors"
         onClick={() => setOpen((p) => !p)}
       >
-        <span>🔔</span>
         <span className="text-slate-300">Notifications</span>
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
@@ -97,18 +96,18 @@ export default function NotificationCenter() {
         )}
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div className="absolute right-0 top-9 w-96 max-h-[70vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 flex flex-col">
           <div className="flex items-center justify-between p-3 border-b border-slate-700">
             <span className="font-bold text-sm text-slate-200">
-              Notifications {unreadCount > 0 && <span className="text-red-400">({unreadCount} unread)</span>}
+              Notifications
+              {unreadCount > 0 && (
+                <span className="text-red-400 ml-1">({unreadCount} unread)</span>
+              )}
             </span>
             <button
               className="text-xs text-slate-500 hover:text-slate-300"
-              onClick={() => {
-                sorted.forEach((n) => markNotificationRead(n.id));
-              }}
+              onClick={() => sorted.forEach((n) => markNotificationRead(n.id))}
             >
               Mark all read
             </button>

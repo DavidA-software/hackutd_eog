@@ -68,7 +68,7 @@ export default function AssetDetail() {
           <div>
             <div className="text-xs text-slate-500">Pump</div>
             <div className={`font-bold ${pumpStatus === 1 ? 'text-green-400' : 'text-red-400'}`}>
-              {pumpStatus === 1 ? '✅ Running' : '❌ Failed'}
+              {pumpStatus === 1 ? 'Running' : pumpStatus === 2 ? 'FAULT' : 'Stopped'}
             </div>
             <div className="text-xs text-slate-400">{pumpFlow.toFixed(0)} bpd</div>
           </div>
@@ -108,7 +108,7 @@ export default function AssetDetail() {
             return (
               <div key={w.id} className="flex justify-between py-1 border-b border-slate-800 text-xs">
                 <span className={wStatus === 1 ? 'text-green-400' : 'text-red-400'}>
-                  {wStatus === 1 ? '●' : '○'} {w.id.split('_').pop()}
+                  {wStatus === 1 ? '[ON]' : '[OFF]'} {w.id.split('_').pop()}
                 </span>
                 <span className="text-slate-400">{wFlow.toFixed(0)} bpd</span>
                 <span className="text-slate-500">{w.oil_bpd} bbl oil/d</span>

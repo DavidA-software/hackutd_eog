@@ -91,7 +91,7 @@ export function simEventsToDetected(simEvents: SimEvent[]): DetectedEvent[] {
       asset: e.asset,
       category: e.category,
       onset_unix: e.triggered_at,
-      severity: e.category === 'pump_failure' ? 'red' : 'yellow' as AlertSeverity,
+      severity: e.category === 'pump_failure' ? 'severe' : 'major' as AlertSeverity,
       status: 'ongoing' as const,
       confidence: 0.95,
       hours_to_limit: e.category === 'pump_failure' ? 3 + Math.random() * 4 : undefined,

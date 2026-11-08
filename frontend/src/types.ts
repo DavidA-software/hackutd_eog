@@ -94,7 +94,7 @@ export type TelemetryIndex = Record<string, Record<string, { ts: number; value: 
 // ─── Event / Alert Types ──────────────────────────────────────────────────────
 
 export type EventCategory = 'pump_failure' | 'pump_degradation' | 'pipeline_leak';
-export type AlertSeverity = 'green' | 'yellow' | 'red' | 'critical';
+export type AlertSeverity = 'minor' | 'major' | 'severe' | 'critical';
 export type AlertStatus = 'ongoing' | 'resolved' | 'predicted';
 
 export interface DetectedEvent {

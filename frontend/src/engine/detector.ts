@@ -29,10 +29,10 @@ function newId() {
 function getSeverity(level_pct: number, hours_to_limit: number | null): AlertSeverity {
   if (level_pct >= SHUTDOWN_PCT) return 'critical';
   if (hours_to_limit !== null && hours_to_limit < 1.5) return 'critical';
-  if (hours_to_limit !== null && hours_to_limit < 3) return 'red';
-  if (level_pct >= WARNING_PCT) return 'red';
-  if (level_pct >= 70) return 'yellow';
-  return 'green';
+  if (hours_to_limit !== null && hours_to_limit < 3) return 'severe';
+  if (level_pct >= WARNING_PCT) return 'severe';
+  if (level_pct >= 70) return 'major';
+  return 'minor';
 }
 
 /**
@@ -169,7 +169,7 @@ export function detectEvents(
               asset: facility.pump.id,
               category: 'pump_degradation',
               onset_unix: windowStart,
-              severity: efficiencyDrop > 0.15 ? 'yellow' : 'yellow',
+              severity: efficiencyDrop > 0.15 ? 'major' : 'major',
               status: 'ongoing',
               confidence,
             });
@@ -189,7 +189,7 @@ export function detectEvents(
         if (flowMismatch > LEAK_FLOW_RATIO_THRESHOLD || pressureDrop > LEAK_PRESSURE_DROP_THRESHOLD) {
           const confidence = Math.min(0.93, Math.max(flowMismatch, pressureDrop) * 4);
           const severity: AlertSeverity =
-            flowMismatch > 0.15 || pressureDrop > 0.2 ? 'red' : 'yellow';
+            flowMismatch > 0.15 || pressureDrop > 0.2 ? 'severe' : 'major';
 
           events.push({
             id: newId(),

@@ -1,32 +1,30 @@
-# React + TypeScript + Vite
+# Frontend: EOG Ops Console
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite. Map of every system (Konva canvas), replay timeline, alerts, costs,
+truck tracker and notifications.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # type-check and production build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The backend (Spring Boot on :8081) must be running for live analysis. Vite forwards `/api/*` and
+the dataset files (`/data/<dataset>/{network.json,ops.json,telemetry.csv}`) to it; see
+`vite.config.ts`. Without it the console uses its in-browser engine (`src/engine/detector.ts`).
+
+## Where things live
+
+| Path | What |
+|---|---|
+| `src/store/appStore.ts` | App state: dataset loading, analysis, replay clock, notifications |
+| `src/data/api.ts` | Backend calls (`/api/datasets`, `/api/analysis`) |
+| `src/data/loader.ts` | Loads the dataset files and indexes telemetry for the map and charts |
+| `src/engine/replay.ts` | Events, countdowns and alert order at any replay time |
+| `src/components/Replay/ReplayBar.tsx` | Timeline strip: play, pause, scrub, event markers, weather |
+| `src/components/CityMap/CityCanvas.tsx` | Map drawing and recorded weather |
+| `src/components/Controls/ControlsMenu.tsx` | Dataset picker, replay and weather drill controls |
+| `src/components/AlertPanel/` | Alerts in the required order |
+| `public/` | Logo, icons and `data/city_boundaries.json` (city outlines for the map) |
+
+Datasets live in the repo's top-level `data/` folder, not in `public/`.

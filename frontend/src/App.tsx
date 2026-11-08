@@ -38,7 +38,9 @@ export default function App() {
   } = useAppStore();
 
   const simIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [isLegendMinimized, setIsLegendMinimized] = useState(false);
+  // Legend starts collapsed so it doesn't cover facilities in the bottom-left (one click opens it)
+  const [isLegendMinimized, setIsLegendMinimized] = useState(true);
+  const [weatherNow, setWeatherNow] = useState<CityTemperatures>({});
   const [tempAlerts, setTempAlerts] = useState<Set<string>>(new Set());
   const [weatherSimMode, setWeatherSimMode] = useState(false);
   const [showRain, setShowRain] = useState(false);
@@ -47,6 +49,7 @@ export default function App() {
   // Real weather at the replay time -> alerts. They stay below equipment alerts in the panel.
   const weatherAlertIds = useRef<Set<string>>(new Set());
   const handleTemperaturesChange = (temps: CityTemperatures) => {
+    setWeatherNow(temps);
     const { addNotification, removeNotification, nowUnix: tNow } = useAppStore.getState();
     const active = new Set<string>();
     for (const [city, wx] of Object.entries(temps)) {
@@ -249,7 +252,9 @@ export default function App() {
 
       {/* Main layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Map (center) */}
+        {/* Map (center): replay timeline strip on top, map below */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+        {network && <ReplayBar weather={weatherNow} />}
         <div className="flex-1 relative overflow-hidden">
           {!network && !loading && (
             <div className="absolute inset-0 flex items-center justify-center text-slate-600">
@@ -292,9 +297,7 @@ export default function App() {
               </>
             )}
           </div>
-
-          {/* Replay timeline */}
-          {network && <ReplayBar />}
+        </div>
         </div>
 
         {/* Right sidebar */}

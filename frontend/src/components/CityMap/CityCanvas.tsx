@@ -1129,24 +1129,6 @@ export default function CityCanvas({
         onMouseLeave={() => setTooltip(null)}
       />
       
-      {/* Recorded weather at the replay time */}
-      {Object.keys(temperatures).length > 0 && (() => {
-        const mid = temperatures['Midland'] ?? Object.values(temperatures)[0];
-        const wet = Object.entries(temperatures).filter(([, c]) => (c.precip_mm ?? 0) >= 0.1 || (c.code ?? 0) >= 95);
-        return (
-          <div className="absolute bottom-4 right-4 bg-slate-950/80 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-200 z-20 pointer-events-none max-w-[260px]">
-            <div className="font-bold text-slate-100 mb-0.5">RECORDED WEATHER</div>
-            <div className="text-slate-300">
-              Midland {Math.round(mid.temp ?? 0)}°F · {mid.condition || '—'} · wind {Math.round(mid.wind_mph ?? 0)} mph
-            </div>
-            <div className="text-slate-400 mt-0.5">
-              {wet.length ? `Rain near: ${wet.map(([c]) => c).join(', ')}` : 'No rain in the area this hour'}
-            </div>
-            <div className="text-slate-500 mt-0.5">At replay time · Open-Meteo historical data</div>
-          </div>
-        );
-      })()}
-
       {tooltip && (
         <div
           className="absolute pointer-events-none bg-white/95 border border-gray-300 shadow-md rounded px-2 py-1.5 text-xs text-gray-800 whitespace-pre z-10"

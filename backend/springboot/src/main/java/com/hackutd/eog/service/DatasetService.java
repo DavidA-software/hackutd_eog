@@ -9,9 +9,15 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -20,7 +26,7 @@ import java.util.zip.ZipInputStream;
 /**
  * A dataset is any folder inside the data directory holding network.json, ops.json and
  * telemetry.csv. Judges can add one by dropping a folder in, or by uploading the three files
- * (or a zip of them) through POST /api/datasets or the upload page at http://localhost:8080/.
+ * (or a zip of them) through POST /api/datasets or the upload page at http://localhost:8081/.
  */
 @Service
 public class DatasetService {
@@ -42,24 +48,56 @@ public class DatasetService {
     public List<Map<String, Object>> list() throws IOException {
         List<Map<String, Object>> out = new ArrayList<>();
         try (Stream<Path> dirs = Files.list(dataDir)) {
-            for (Path d : dirs.filter(Files::isDirectory).sorted().toList()) {
-                if (isDataset(d)) {
-                    String name = d.getFileName().toString();
-                    out.add(Map.of(
-                            "name", name,
-                            "path", name,
-                            "description", describe(name)));
-                }
+            List<String> folders = dirs.filter(Files::isDirectory).filter(this::isDataset)
+                    .map(d -> d.getFileName().toString())
+                    .sorted(Comparator.comparingInt(DatasetService::rank).thenComparing(Comparator.naturalOrder()))
+                    .toList();
+            for (String folder : folders) {
+                out.add(Map.of("name", label(folder), "path", folder, "description", describe(folder)));
             }
         }
         return out;
     }
 
-    private static String describe(String name) {
-        if (name.equals("test")) return "Judging dataset";
-        if (name.startsWith("mock_test")) return "Dress rehearsal (no answer key)";
-        if (name.startsWith("snapshot")) return "Week cut early, problems in progress";
-        if (name.equals("full_week")) return "Whole practice week";
+    // Judging data first, then the official practice data, then generated scenarios, then anything else.
+    private static int rank(String folder) {
+        if (folder.equals("test")) return 0;
+        if (folder.equals("full_week")) return 1;
+        if (folder.startsWith("snapshot")) return 2;
+        if (folder.startsWith("mock_test")) return 3;
+        if (folder.startsWith("simulated")) return 4;
+        return 5;
+    }
+
+    private static final Pattern STAMP = Pattern.compile("(\\d{4}-\\d{2}-\\d{2}T\\d{4})");
+    private static final Pattern SIM_N = Pattern.compile("simulated-data-(\\d+)");
+
+    /** Readable name for the dataset menu, e.g. "Snapshot · Thu Oct 8 12:00". */
+    static String label(String folder) {
+        if (folder.equals("test")) return "TEST · judging data";
+        if (folder.equals("full_week")) return "Full practice week";
+        Matcher sim = SIM_N.matcher(folder);
+        if (sim.matches()) return "Simulated scenario " + sim.group(1);
+        Matcher m = STAMP.matcher(folder);
+        if (m.find()) {
+            try {
+                LocalDateTime t = LocalDateTime.parse(m.group(1), DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HHmm"));
+                String when = t.format(DateTimeFormatter.ofPattern("EEE MMM d HH:mm", Locale.US));
+                if (folder.startsWith("snapshot")) return "Snapshot · " + when;
+                if (folder.startsWith("mock_test")) return "Mock test · " + when;
+            } catch (DateTimeParseException ignored) {
+                // fall through to the folder name
+            }
+        }
+        return folder;
+    }
+
+    private static String describe(String folder) {
+        if (folder.equals("test")) return "Judging dataset";
+        if (folder.startsWith("mock_test")) return "Dress rehearsal (no answer key)";
+        if (folder.startsWith("snapshot")) return "Week cut early, problems in progress";
+        if (folder.equals("full_week")) return "Whole practice week";
+        if (folder.startsWith("simulated")) return "Generated scenario (synthetic data)";
         return "Uploaded dataset";
     }
 

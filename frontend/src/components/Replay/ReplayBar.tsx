@@ -1,4 +1,5 @@
 import { useAppStore } from '../../store/appStore';
+import type { CityTemperatures } from '../CityMap/CityCanvas';
 
 const CAT_COLOR: Record<string, string> = {
   pump_failure: 'bg-red-500',
@@ -17,7 +18,7 @@ function fmt(unix: number) {
 }
 
 /** Timeline over the recorded week: shows where each problem was detected and lets you scrub. */
-export default function ReplayBar() {
+export default function ReplayBar({ weather = {} }: { weather?: CityTemperatures }) {
   const {
     nowUnix,
     datasetStart,
@@ -47,6 +48,17 @@ export default function ReplayBar() {
     ? { text: `REPLAY · ${simSpeed}x`, cls: 'text-blue-300' }
     : { text: 'PAUSED', cls: 'text-amber-300' };
 
+  // One-line summary of the recorded weather at the replay time
+  const mid = weather['Midland'] ?? Object.values(weather)[0];
+  const wet = Object.entries(weather)
+    .filter(([, c]) => (c.precip_mm ?? 0) >= 0.1 || (c.code ?? 0) >= 95)
+    .map(([city]) => city);
+  const weatherText = mid
+    ? `Midland ${Math.round(mid.temp ?? 0)}°F ${mid.condition ?? ''} · wind ${Math.round(mid.wind_mph ?? 0)} mph` +
+      (wet.length ? ` · rain near ${wet.join(', ')}` : '')
+    : '';
+  const stormy = Object.values(weather).some((c) => (c.code ?? 0) >= 95);
+
   const scrub = (t: number) => {
     if (simMode) toggleSimMode();
     setReplayTime(t);
@@ -54,15 +66,23 @@ export default function ReplayBar() {
   };
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 w-[min(860px,92%)] bg-slate-950/85 border border-slate-700 rounded-lg px-4 pt-2 pb-1.5 z-20 shadow-lg">
-      <div className="flex items-center gap-3 text-xs mb-1">
+    <div className="w-full shrink-0 bg-slate-950 border-b border-slate-800 px-4 pt-1.5 pb-1">
+      <div className="flex items-center gap-3 text-xs mb-0.5 whitespace-nowrap overflow-hidden">
         <span className={`font-bold ${status.cls}`}>● {status.text}</span>
         <span className="text-slate-200 font-bold">{fmt(nowUnix)}</span>
         {!atEnd && !simMode && exactAt === nowUnix && (
-          <span className="text-slate-400">Plans computed as if it were this moment</span>
+          <span className="text-slate-400" title="Plans are recomputed as if this moment were now: tank levels, repair time left and the whole truck fleet">Plans as of this moment</span>
         )}
         {!backendOnline && <span className="text-yellow-400">Offline mode</span>}
         <div className="flex-1" />
+        {weatherText && (
+          <span
+            className={`truncate ${stormy ? 'text-amber-300' : 'text-slate-400'}`}
+            title="Recorded weather at the replay time (Open-Meteo historical data)"
+          >
+            {stormy ? '⛈ ' : ''}{weatherText}
+          </span>
+        )}
         <button
           onClick={toggleSimMode}
           className="text-xs px-2 py-0.5 rounded bg-blue-700 hover:bg-blue-600 text-white font-bold"
@@ -104,18 +124,17 @@ export default function ReplayBar() {
         />
       </div>
 
-      <div className="relative h-3 text-[10px] text-slate-500">
+      <div className="relative h-3.5 text-[10px] text-slate-500">
         {days.map((d) => (
           <span key={d} className="absolute -translate-x-1/2" style={{ left: pct(d) }}>
             {new Date(d * 1000).toUTCString().slice(0, 3)}
           </span>
         ))}
-      </div>
-      <div className="flex gap-3 text-[10px] text-slate-500 mt-0.5">
-        <span><span className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />Pump failure</span>
-        <span><span className="inline-block w-2 h-2 bg-orange-400 rounded-sm mr-1" />Leak</span>
-        <span><span className="inline-block w-2 h-2 bg-yellow-300 rounded-sm mr-1" />Worn pump</span>
-        <span className="ml-auto">Markers show when each problem became detectable · click to jump</span>
+        <span className="absolute right-0 flex gap-3 bg-slate-950 pl-2" title="Markers show when each problem became detectable. Click one to jump there.">
+          <span><span className="inline-block w-2 h-2 bg-red-500 rounded-sm mr-1" />Pump failure</span>
+          <span><span className="inline-block w-2 h-2 bg-orange-400 rounded-sm mr-1" />Leak</span>
+          <span><span className="inline-block w-2 h-2 bg-yellow-300 rounded-sm mr-1" />Worn pump</span>
+        </span>
       </div>
     </div>
   );

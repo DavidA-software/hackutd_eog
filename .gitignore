@@ -1,0 +1,37 @@
+# ── Mac / editors ──
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# ── Frontend (React / Vite) ──
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+
+# ── Python backend ──
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ── Spring Boot backend ──
+target/
+*.class
+.mvn/wrapper/maven-wrapper.jar
+
+# ── Secrets / env (never commit tokens) ──
+.env
+.env.*
+*.pem
+
+# ── Logs ──
+*.log
+npm-debug.log*
+
+# ── Stray lockfile from running npm in the root ──
+/package-lock.json

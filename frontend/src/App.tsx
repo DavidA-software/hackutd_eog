@@ -7,7 +7,6 @@ import AlertPanel from './components/AlertPanel/AlertPanel';
 import Dashboard from './components/Dashboard/Dashboard';
 import TruckTracker from './components/TruckTracker/TruckTracker';
 import CostPanel from './components/CostPanel/CostPanel';
-import OilReserve from './components/Dashboard/OilReserve';
 import AssetDetail from './components/Dashboard/AssetDetail';
 import NotificationCenter from './components/Notifications/NotificationCenter';
 import NetworkEditor from './components/NetworkEditor/NetworkEditor';
@@ -299,7 +298,7 @@ export default function App() {
         <div className="w-80 flex flex-col border-l border-slate-800 bg-slate-950/80 shrink-0">
           {/* Sidebar tabs */}
           <div className="flex border-b border-slate-800 shrink-0">
-            {(['alerts', 'trucks', 'costs', 'reserve'] as const).map((tab) => (
+            {(['alerts', 'trucks', 'costs'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setSidebarTab(tab)}
@@ -319,7 +318,6 @@ export default function App() {
             {sidebarTab === 'alerts' && <AlertPanel />}
             {sidebarTab === 'trucks' && <TruckTracker />}
             {sidebarTab === 'costs' && <CostPanel />}
-            {sidebarTab === 'reserve' && <OilReserve />}
           </div>
         </div>
       </div>

@@ -204,6 +204,8 @@ export interface CustomSensor {
   unit: string;
   upstream?: string[];
   downstream?: string[];
+  /** Optional user-uploaded icon, stored as a data URL */
+  icon?: string;
 }
 
 // ─── Dijkstra Graph Types ─────────────────────────────────────────────────────

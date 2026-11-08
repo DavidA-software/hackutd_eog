@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
-import { useAppStore, DATASET_FOLDERS } from './store/appStore';
+import { useAppStore } from './store/appStore';
+import ControlsMenu from './components/Controls/ControlsMenu';
 import CityCanvas from './components/CityMap/CityCanvas';
 import AlertPanel from './components/AlertPanel/AlertPanel';
 import Dashboard from './components/Dashboard/Dashboard';
@@ -10,7 +11,6 @@ import OilReserve from './components/Dashboard/OilReserve';
 import AssetDetail from './components/Dashboard/AssetDetail';
 import NotificationCenter from './components/Notifications/NotificationCenter';
 import NetworkEditor from './components/NetworkEditor/NetworkEditor';
-import type { SimSpeed } from './types';
 import type { CityTemperatures } from './components/CityMap/CityCanvas';
 import type { Notification } from './types';
 
@@ -200,18 +200,6 @@ export default function App() {
           {threatLabel}
         </div>
 
-        {/* Dataset selector */}
-        <select
-          className="bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded px-2 py-1.5 cursor-pointer focus:outline-none focus:border-blue-500"
-          value={activeFolder}
-          onChange={(e) => loadDataset(e.target.value)}
-          disabled={loading}
-        >
-          {DATASET_FOLDERS.map((f) => (
-            <option key={f.path} value={f.path}>{f.name}</option>
-          ))}
-        </select>
-
         {loading && (
           <div className="text-xs text-blue-400 animate-pulse">Loading dataset...</div>
         )}
@@ -221,66 +209,22 @@ export default function App() {
 
         <div className="flex-1" />
 
-        {/* Sim controls */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">SIM</span>
-          {(['1', '5', '10', '30'] as const).map((spd) => (
-            <button
-              key={spd}
-              onClick={() => setSimSpeed(Number(spd) as SimSpeed)}
-              className={`text-xs px-2 py-1 rounded transition-colors ${
-                simSpeed === Number(spd) && simMode
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              {spd}x
-            </button>
-          ))}
-          <button
-            onClick={toggleSimMode}
-            className={`text-xs px-3 py-1.5 rounded font-bold transition-colors ${
-              simMode
-                ? 'bg-red-700 hover:bg-red-600 text-white'
-                : 'bg-green-700 hover:bg-green-600 text-white'
-            }`}
-          >
-            {simMode ? 'Stop Data Sim' : 'Start Data Sim'}
-          </button>
-        </div>
-
-        {/* Weather Sim controls */}
-        <div className="flex items-center gap-2 ml-4 pl-4 border-l border-slate-700">
-          <span className="text-xs text-slate-500">WEATHER</span>
-          <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showRain}
-              onChange={(e) => setShowRain(e.target.checked)}
-              className="w-3 h-3"
-            />
-            <span>Thunderstorm</span>
-          </label>
-          <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showTornado}
-              onChange={(e) => setShowTornado(e.target.checked)}
-              className="w-3 h-3"
-            />
-            <span>Tornado</span>
-          </label>
-          <button
-            onClick={() => setWeatherSimMode(!weatherSimMode)}
-            className={`text-xs px-3 py-1.5 rounded font-bold transition-colors ${
-              weatherSimMode
-                ? 'bg-red-700 hover:bg-red-600 text-white'
-                : 'bg-purple-700 hover:bg-purple-600 text-white'
-            }`}
-          >
-            {weatherSimMode ? 'Stop Weather Sim' : 'Start Weather Sim'}
-          </button>
-        </div>
+        {/* Simulation / data / weather controls (popover) */}
+        <ControlsMenu
+          activeFolder={activeFolder}
+          loading={loading}
+          onDatasetChange={loadDataset}
+          simMode={simMode}
+          simSpeed={simSpeed}
+          onToggleSim={toggleSimMode}
+          onSetSimSpeed={setSimSpeed}
+          weatherSimMode={weatherSimMode}
+          onToggleWeatherSim={() => setWeatherSimMode(!weatherSimMode)}
+          showRain={showRain}
+          onShowRainChange={setShowRain}
+          showTornado={showTornado}
+          onShowTornadoChange={setShowTornado}
+        />
 
         {/* Network editor */}
         <button
